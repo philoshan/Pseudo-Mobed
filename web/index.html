@@ -1,0 +1,284 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>MOBED 조종</title>
+<style>
+  :root {
+    --bg: #11151c; --panel: #1b212b; --line: #2c3544; --text: #e6ebf2; --muted: #8b97a8;
+    --accent: #3d8bfd; --ok: #2fbf71; --warn: #e5a93c; --bad: #e5484d;
+    --pad: clamp(150px, 38vmin, 280px);
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
+    font: 15px/1.4 system-ui, "Malgun Gothic", sans-serif; overscroll-behavior: none; }
+  body { display: flex; flex-direction: column; gap: 12px; padding: 12px 16px; user-select: none; -webkit-user-select: none; }
+
+  header { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  header h1 { font-size: 18px; margin: 0; letter-spacing: .08em; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--bad); }
+  .dot.ok { background: var(--ok); } .dot.warn { background: var(--warn); }
+  #linkText { color: var(--muted); font-size: 13px; }
+  .spacer { flex: 1; }
+
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .seg button { background: var(--panel); color: var(--muted); border: 0; padding: 8px 12px; font: inherit; cursor: pointer; }
+  .seg button.on { background: var(--accent); color: #fff; }
+
+  main { flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr minmax(220px, 300px); gap: 12px; }
+  @media (max-width: 720px) and (orientation: portrait) { main { grid-template-columns: 1fr; } }
+
+  .pads { display: flex; align-items: center; justify-content: space-evenly; gap: 12px; background: var(--panel);
+    border: 1px solid var(--line); border-radius: 14px; padding: 12px; min-height: 0; }
+  .padWrap { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+  .padLabel { color: var(--muted); font-size: 12px; }
+  .pad { position: relative; width: var(--pad); height: var(--pad); border-radius: 50%; touch-action: none;
+    background: radial-gradient(circle, #232b38 0%, #1a2029 70%); border: 2px solid var(--line); }
+  .pad::before, .pad::after { content: ""; position: absolute; background: var(--line); }
+  .pad::before { left: 50%; top: 8%; bottom: 8%; width: 1px; }
+  .pad::after  { top: 50%; left: 8%; right: 8%; height: 1px; }
+  .pad.lockX::before { display: none; } .pad.lockY::after { display: none; }
+  .pad.lockX, .pad.lockY { border-radius: 24px; }
+  .pad.lockX { width: calc(var(--pad) * .45); } .pad.lockY { height: calc(var(--pad) * .45); }
+  .knob { position: absolute; left: 50%; top: 50%; width: 30%; height: 30%; min-width: 52px; min-height: 52px; margin: 0;
+    transform: translate(-50%, -50%); border-radius: 50%; background: var(--accent); box-shadow: 0 2px 10px #0008; pointer-events: none; }
+  .pad.lockX .knob, .pad.lockY .knob { width: 52px; height: 52px; }
+  .pad.active .knob { background: #5aa1ff; }
+
+  aside { display: flex; flex-direction: column; gap: 10px; min-height: 0; overflow: auto; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 12px; }
+  .card h2 { margin: 0 0 8px; font-size: 12px; color: var(--muted); font-weight: 600; letter-spacing: .06em; }
+  button.big { width: 100%; padding: 12px; border-radius: 10px; border: 1px solid var(--line); background: #232b38;
+    color: var(--text); font: inherit; font-weight: 600; cursor: pointer; }
+  button.big:active { transform: scale(.98); }
+  #stopBtn { background: var(--bad); border-color: var(--bad); color: #fff; font-size: 17px; padding: 16px; }
+  button.toggle.on { background: var(--ok); border-color: var(--ok); color: #06210f; }
+  .row { display: flex; gap: 8px; } .row > * { flex: 1; }
+  label.slider { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); }
+  label.slider span b { color: var(--text); font-weight: 600; }
+  input[type=range] { width: 100%; accent-color: var(--accent); }
+  .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 12px; font-variant-numeric: tabular-nums; }
+  .stats div { display: flex; justify-content: space-between; }
+  .stats span { color: var(--muted); }
+  .hint { color: var(--muted); font-size: 12px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>MOBED</h1>
+  <span class="dot" id="dot"></span><span id="linkText">연결 중…</span>
+  <span class="spacer"></span>
+  <div class="seg" id="modeSeg" title="조이스틱 개수">
+    <button data-mode="1" class="on">조이스틱 1개</button>
+    <button data-mode="2">2개</button>
+  </div>
+</header>
+
+<main>
+  <section class="pads" id="pads"></section>
+
+  <aside>
+    <button class="big" id="stopBtn">정지 (Space)</button>
+
+    <div class="card">
+      <h2>모드</h2>
+      <div class="row">
+        <button class="big toggle" id="levelBtn">자동 수평 OFF</button>
+        <button class="big toggle" id="spinBtn">제자리 회전 OFF</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>설정</h2>
+      <label class="slider"><span>최대 속도 <b id="limVal">50</b>%</span>
+        <input type="range" id="limit" min="10" max="100" step="5" value="50"></label>
+      <label class="slider" style="margin-top:10px"><span>서스펜션 높이 <b id="hVal">0</b>°</span>
+        <input type="range" id="height" min="-30" max="30" step="1" value="0"></label>
+      <button class="big" id="hReset" style="margin-top:8px;padding:8px">높이 0으로</button>
+    </div>
+
+    <div class="card">
+      <h2>상태</h2>
+      <div class="stats">
+        <div><span>좌 RPM</span><b id="rL">–</b></div><div><span>우 RPM</span><b id="rR">–</b></div>
+        <div><span>Pitch</span><b id="pit">–</b></div><div><span>Roll</span><b id="rol">–</b></div>
+      </div>
+    </div>
+
+    <p class="hint">키보드: W/A/S/D 또는 방향키, Space 정지, L 자동 수평 · 게임패드: 왼쪽 스틱, B 정지, X 자동 수평</p>
+  </aside>
+</main>
+
+<script>
+"use strict";
+const DEADZONE = 0.08;
+const $ = (id) => document.getElementById(id);
+
+// ---------------- 저장된 설정 (없어도 동작) ----------------
+function load(key, def) { try { const v = localStorage.getItem(key); return v === null ? def : v; } catch (e) { return def; } }
+function save(key, v) { try { localStorage.setItem(key, v); } catch (e) {} }
+
+// ---------------- 조이스틱 ----------------
+class Pad {
+  constructor(el, { lockX = false, lockY = false }) {
+    this.el = el; this.lockX = lockX; this.lockY = lockY;
+    this.x = 0; this.y = 0; this.id = null;
+    this.knob = el.querySelector(".knob");
+    el.addEventListener("pointerdown", (e) => { if (this.id !== null) return; this.id = e.pointerId; el.setPointerCapture(e.pointerId); el.classList.add("active"); this.update(e); e.preventDefault(); });
+    el.addEventListener("pointermove", (e) => { if (e.pointerId === this.id) this.update(e); });
+    const end = (e) => { if (e.pointerId === this.id) this.release(); };
+    el.addEventListener("pointerup", end); el.addEventListener("pointercancel", end); el.addEventListener("lostpointercapture", end);
+  }
+  update(e) {
+    const r = this.el.getBoundingClientRect();
+    const hw = r.width / 2, hh = r.height / 2;
+    let dx = (e.clientX - (r.left + hw)) / hw, dy = (e.clientY - (r.top + hh)) / hh;
+    if (this.lockX) dx = 0; if (this.lockY) dy = 0;
+    const m = Math.hypot(dx, dy);
+    if (m > 1) { dx /= m; dy /= m; }
+    this.x = dx; this.y = -dy;           // 위 = +
+    this.draw();
+  }
+  release() { this.id = null; this.x = 0; this.y = 0; this.el.classList.remove("active"); this.draw(); }
+  draw() {
+    const r = this.el.getBoundingClientRect();
+    this.knob.style.transform = `translate(calc(-50% + ${this.x * r.width / 2 * 0.7}px), calc(-50% + ${-this.y * r.height / 2 * 0.7}px))`;
+  }
+}
+
+let pads = [];
+let mode = parseInt(load("mobed.mode", "1"), 10) === 2 ? 2 : 1;
+
+function buildPads() {
+  const box = $("pads");
+  box.innerHTML = "";
+  const make = (label, cls) => {
+    const wrap = document.createElement("div"); wrap.className = "padWrap";
+    const pad = document.createElement("div"); pad.className = "pad " + cls;
+    pad.innerHTML = '<div class="knob"></div>';
+    const lab = document.createElement("div"); lab.className = "padLabel"; lab.textContent = label;
+    wrap.append(pad, lab); box.append(wrap); return pad;
+  };
+  if (mode === 1) {
+    pads = [new Pad(make("위/아래 = 속도 · 좌/우 = 조향", ""), {})];
+  } else {
+    pads = [new Pad(make("속도", "lockX"), { lockX: true }), new Pad(make("조향", "lockY"), { lockY: true })];
+  }
+  document.querySelectorAll("#modeSeg button").forEach((b) => b.classList.toggle("on", parseInt(b.dataset.mode, 10) === mode));
+}
+document.querySelectorAll("#modeSeg button").forEach((b) => b.addEventListener("click", () => {
+  mode = parseInt(b.dataset.mode, 10); save("mobed.mode", String(mode)); buildPads();
+}));
+buildPads();
+
+// ---------------- 키보드 ----------------
+const keys = new Set();
+addEventListener("keydown", (e) => {
+  if (e.repeat) return;
+  const k = e.key.toLowerCase();
+  if (k === " ") { e.preventDefault(); doStop(); return; }
+  if (k === "l") { toggleLevel(); return; }
+  if (["w", "a", "s", "d", "arrowup", "arrowdown", "arrowleft", "arrowright"].includes(k)) { keys.add(k); e.preventDefault(); }
+});
+addEventListener("keyup", (e) => keys.delete(e.key.toLowerCase()));
+function releaseAll() { keys.clear(); pads.forEach((p) => p.release()); }
+addEventListener("blur", releaseAll);
+document.addEventListener("visibilitychange", () => { if (document.hidden) releaseAll(); });
+
+// ---------------- 게임패드 ----------------
+let padPrev = { b: false, x: false };
+function readGamepad() {
+  const gps = navigator.getGamepads ? navigator.getGamepads() : [];
+  for (const g of gps) {
+    if (!g) continue;
+    const ax = (i) => (g.axes[i] || 0);
+    const speed = mode === 1 ? -ax(1) : -ax(1);
+    const steer = mode === 1 ? ax(0) : ax(2);
+    const b = !!(g.buttons[1] && g.buttons[1].pressed), x = !!(g.buttons[2] && g.buttons[2].pressed);
+    if (b && !padPrev.b) doStop();
+    if (x && !padPrev.x) toggleLevel();
+    padPrev = { b, x };
+    return { speed, steer };
+  }
+  return { speed: 0, steer: 0 };
+}
+
+// ---------------- 입력 합성 ----------------
+function dz(v) { const a = Math.abs(v); return a < DEADZONE ? 0 : Math.sign(v) * (a - DEADZONE) / (1 - DEADZONE); }
+
+function currentInput() {
+  let speed = 0, steer = 0;
+  if (mode === 1) { speed = pads[0].y; steer = pads[0].x; }
+  else { speed = pads[0].y; steer = pads[1].x; }
+  speed = dz(speed); steer = dz(steer);
+
+  const gp = readGamepad();
+  if (speed === 0) speed = dz(gp.speed);
+  if (steer === 0) steer = dz(gp.steer);
+
+  const ky = (keys.has("w") || keys.has("arrowup") ? 1 : 0) - (keys.has("s") || keys.has("arrowdown") ? 1 : 0);
+  const kx = (keys.has("d") || keys.has("arrowright") ? 1 : 0) - (keys.has("a") || keys.has("arrowleft") ? 1 : 0);
+  if (speed === 0) speed = ky;
+  if (steer === 0) steer = kx;
+  return { speed, steer };
+}
+
+// ---------------- 상태 ----------------
+let spinOn = false, levelOn = false, levelHold = 0, limit = parseInt(load("mobed.limit", "50"), 10) || 50;
+let ws = null, wsOpen = false, lastSnap = null, lastSnapAt = 0;
+
+function setToggle(btn, on, text) { btn.classList.toggle("on", on); btn.textContent = text + (on ? " ON" : " OFF"); }
+function renderToggles() { setToggle($("levelBtn"), levelOn, "자동 수평"); setToggle($("spinBtn"), spinOn, "제자리 회전"); }
+
+function send(obj) { if (wsOpen) ws.send(JSON.stringify(obj)); }
+function doStop() { releaseAll(); send({ t: "stop" }); }
+function toggleLevel() { levelOn = !levelOn; levelHold = Date.now() + 1500; send({ t: "level", on: levelOn }); renderToggles(); }
+
+$("stopBtn").addEventListener("click", doStop);
+$("levelBtn").addEventListener("click", toggleLevel);
+$("spinBtn").addEventListener("click", () => { spinOn = !spinOn; renderToggles(); });
+$("limit").value = limit; $("limVal").textContent = limit;
+$("limit").addEventListener("input", (e) => { limit = parseInt(e.target.value, 10); $("limVal").textContent = limit; save("mobed.limit", String(limit)); });
+$("height").addEventListener("input", (e) => { $("hVal").textContent = e.target.value; send({ t: "height", v: parseInt(e.target.value, 10) }); });
+$("hReset").addEventListener("click", () => { $("height").value = 0; $("hVal").textContent = 0; send({ t: "height", v: 0 }); });
+
+// ---------------- WebSocket ----------------
+function connect() {
+  ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws`);
+  ws.onopen = () => { wsOpen = true; };
+  ws.onclose = () => { wsOpen = false; lastSnap = null; render(); setTimeout(connect, 1000); };
+  ws.onerror = () => { try { ws.close(); } catch (e) {} };
+  ws.onmessage = (ev) => { try { lastSnap = JSON.parse(ev.data); lastSnapAt = Date.now(); } catch (e) {} render(); };
+}
+connect();
+
+function fmt(v, d = 1) { return (typeof v === "number") ? v.toFixed(d) : "–"; }
+function render() {
+  const dot = $("dot"), txt = $("linkText");
+  const st = lastSnap && lastSnap.status ? lastSnap.status : {};
+  const fresh = lastSnap && lastSnap.age !== null && lastSnap.age < 2;
+  if (!wsOpen) { dot.className = "dot"; txt.textContent = "서버 연결 끊김"; }
+  else if (!lastSnap || !lastSnap.link) { dot.className = "dot warn"; txt.textContent = "로봇 포트 연결 중…"; }
+  else if (!fresh) { dot.className = "dot warn"; txt.textContent = "로봇 응답 없음"; }
+  else { dot.className = "dot ok"; txt.textContent = "로봇 연결됨"; }
+  $("rL").textContent = fmt(st.rpmL); $("rR").textContent = fmt(st.rpmR);
+  $("pit").textContent = fmt(st.pitch) + "°"; $("rol").textContent = fmt(st.roll) + "°";
+  if (fresh && "level" in st && Date.now() > levelHold) { levelOn = st.level === 1; renderToggles(); }
+}
+renderToggles();
+
+// ---------------- 전송 루프 (50ms) ----------------
+setInterval(() => {
+  const inp = currentInput();
+  const lim = limit / 100;
+  send({
+    t: "drive",
+    speed: Math.round(inp.speed * 100 * lim),
+    steer: Math.round(inp.steer * 100),
+    spin: spinOn,
+  });
+}, 50);
+</script>
+</body>
+</html>
